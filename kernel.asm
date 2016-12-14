@@ -13,9 +13,17 @@ global start
 extern kmain	        ;kmain is defined in the c file
 
 start:
+  mov eax, start        ;getting address of our program in memory (eip)
+
   cli 			;block interrupts
   mov esp, stack_space	;set stack pointer
+
+  push stack_space
+  push eax
   call kmain
+  add esp, 8
+
+
   hlt		 	;halt the CPU
 
 section .bss
