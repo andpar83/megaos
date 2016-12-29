@@ -17,7 +17,6 @@
 extern void keyboard_handler(void);
 extern char read_port(unsigned short port);
 extern void write_port(unsigned short port, unsigned char data);
-extern void load_idt(unsigned long *idt_ptr);
 
 /* current cursor location */
 unsigned int current_loc = 0;
@@ -72,15 +71,22 @@ struct IDT_entry{
 	unsigned char zero;
 	unsigned char type_attr;
 	unsigned short int offset_higherbits;
-};
+} __attribute__((packed));
 
 struct IDT_entry IDT[IDT_SIZE];
+
+struct idt_ptr {
+	unsigned short limit;
+	unsigned long base;
+} __attribute__((packed));
+
+extern void load_idt(struct idt_ptr *idt_ptr);
 
 void idt_init(void)
 {
 	unsigned long keyboard_address;
 	unsigned long idt_address;
-	unsigned long idt_ptr[2];
+	struct idt_ptr idt_ptr;
 
 	/* populate IDT entry of keyboard's interrupt */
 	keyboard_address = (unsigned long)keyboard_handler; 
@@ -123,11 +129,10 @@ void idt_init(void)
 	write_port(0xA1 , 0xff);
 
 	/* fill the IDT descriptor */
-	idt_address = (unsigned long)IDT ;
-	idt_ptr[0] = (sizeof (struct IDT_entry) * IDT_SIZE) + ((idt_address & 0xffff) << 16);
-	idt_ptr[1] = idt_address >> 16 ;
+	idt_ptr.limit = sizeof(IDT);
+	idt_ptr.base = (unsigned long)IDT;
 
-	load_idt(idt_ptr);
+	load_idt(&idt_ptr);
 }
 
 void kb_init(void)
