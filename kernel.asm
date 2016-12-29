@@ -22,43 +22,56 @@ extern keyboard_handler_main
 
 ; param1 - port number (int32)
 read_port:
-	mov edx, [esp + 4]
-	in al, dx	
+	mov  edx, [esp + 4]
+	in   al, dx
 	ret
 
 ; param1 - port number (int32)
 ; param2 - byte of data (passed as int32)
 write_port:
-	mov   edx, [esp + 4]    
-	mov   al, [esp + 4 + 4]  
-	out   dx, al  
+	mov  edx, [esp + 4]
+	mov  al, [esp + 4 + 4]
+	out  dx, al
 	ret
 
 ; param1 - address of IDT descriptor (int32)
 load_idt:
-	mov edx, [esp + 4]
+	mov  edx, [esp + 4]
 	lidt [edx]
 	sti
 	ret
 
 ; keyboard interrupt handler
-keyboard_handler:                 
-	call    keyboard_handler_main
-	iretd
+keyboard_handler:
+	push ds
+	push es
+	push fs
+	push gs
+	pushad
+
+	call keyboard_handler_main
+
+	popad
+	pop gs
+	pop fs
+	pop es
+	pop ds
+	iret
 
 start:
-  cli 			;block interrupts
-  mov eax, code_begin   ;getting address of our program in memory (eip)
-  mov esp, stack_space	;set stack pointer
+	cli 			;block interrupts
+	mov  eax, code_begin    ;getting address of our program in memory
+	mov  esp, stack_space	;set stack pointer
 
-  push stack_space
-  push eax
-  call kmain
-  add esp, 8
+	push stack_space
+	push eax
+	call kmain
+	add  esp, 8
 
 loop:
-  hlt		 	;halt the CPU
-  jmp loop
+	hlt		 	;halt the CPU
+	jmp  loop
+
 
 section .bss
 resb 8192		;8KB for stack
