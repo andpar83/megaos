@@ -217,5 +217,8 @@ void __attribute__((cdecl))  kmain(int start_eip, int start_esp)
 	idt_init();
 	kb_init();
 
-	while(1);
+	while(1)
+	{
+		asm volatile ("hlt");
+	}
 }
