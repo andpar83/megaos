@@ -20,10 +20,101 @@
 #include "keyboard_map.h"
 
 /* there are 25 lines each of 80 columns; each element takes 2 bytes */
-#define LINES 25
-#define COLUMNS_IN_LINE 80
-#define BYTES_FOR_EACH_ELEMENT 2
-#define SCREENSIZE BYTES_FOR_EACH_ELEMENT * COLUMNS_IN_LINE * LINES
+static const size_t VGA_WIDTH = 80;
+static const size_t VGA_HEIGHT = 25;
+
+/* Hardware text mode color constants. */
+enum vga_color {
+	VGA_COLOR_BLACK = 0,
+	VGA_COLOR_BLUE = 1,
+	VGA_COLOR_GREEN = 2,
+	VGA_COLOR_CYAN = 3,
+	VGA_COLOR_RED = 4,
+	VGA_COLOR_MAGENTA = 5,
+	VGA_COLOR_BROWN = 6,
+	VGA_COLOR_LIGHT_GREY = 7,
+	VGA_COLOR_DARK_GREY = 8,
+	VGA_COLOR_LIGHT_BLUE = 9,
+	VGA_COLOR_LIGHT_GREEN = 10,
+	VGA_COLOR_LIGHT_CYAN = 11,
+	VGA_COLOR_LIGHT_RED = 12,
+	VGA_COLOR_LIGHT_MAGENTA = 13,
+	VGA_COLOR_LIGHT_BROWN = 14,
+	VGA_COLOR_WHITE = 15,
+};
+
+static inline uint8_t vga_entry_color(enum vga_color fg, enum vga_color bg) {
+	return fg | bg << 4;
+}
+ 
+static inline uint16_t vga_entry(unsigned char uc, uint8_t color) {
+	return (uint16_t) uc | (uint16_t) color << 8;
+}
+ 
+size_t strlen(const char* str) {
+	size_t len = 0;
+	while (str[len])
+		len++;
+	return len;
+}
+
+size_t terminal_row;
+size_t terminal_column;
+uint8_t terminal_color;
+uint16_t* terminal_buffer;
+ 
+void terminal_initialize(void) {
+	terminal_row = 0;
+	terminal_column = 0;
+	terminal_color = vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK);
+	terminal_buffer = (uint16_t*) 0xB8000;
+	for (size_t y = 0; y < VGA_HEIGHT; y++) {
+		for (size_t x = 0; x < VGA_WIDTH; x++) {
+			const size_t index = y * VGA_WIDTH + x;
+			terminal_buffer[index] = vga_entry(' ', terminal_color);
+		}
+	}
+}
+ 
+void terminal_setcolor(uint8_t color) {
+	terminal_color = color;
+}
+
+
+void terminal_newline(void)
+{
+	terminal_column = 0;
+	if (++terminal_row == VGA_HEIGHT)
+		terminal_row = 0;
+}
+ 
+void terminal_putentryat(char c, uint8_t color, size_t x, size_t y) {
+	const size_t index = y * VGA_WIDTH + x;
+	terminal_buffer[index] = vga_entry(c, color);
+}
+ 
+void terminal_putchar(char c) {
+        if (c == '\n') {
+		terminal_newline();
+	}
+	else {
+		terminal_putentryat(c, terminal_color, terminal_column, terminal_row);
+		if (++terminal_column == VGA_WIDTH) {
+			terminal_column = 0;
+			if (++terminal_row == VGA_HEIGHT)
+				terminal_row = 0;
+		}
+	}
+}
+ 
+void terminal_write(const char* data, size_t size) {
+	for (size_t i = 0; i < size; i++)
+		terminal_putchar(data[i]);
+}
+ 
+void terminal_writestring(const char* data) {
+	terminal_write(data, strlen(data));
+}
 
 #define KEYBOARD_DATA_PORT 0x60
 #define KEYBOARD_STATUS_PORT 0x64
@@ -36,29 +127,6 @@
 extern void keyboard_handler(void);
 extern char read_port(unsigned short port);
 extern void write_port(unsigned short port, unsigned char data);
-
-/* current cursor location */
-unsigned int current_loc = 0;
-/* video memory begins at address 0xb8000 */
-char *vidptr = (char*)0xb8000;
-
-
-void kprint(const char* str);
-void kprint_newline(void);
-
-
-void print(const char* s, unsigned int addr, char color)
-{
-	char *vidptr = (char*)0xb8000; 	//video mem begins here.
-        vidptr += addr;
-	while (*s)
-	{
-		/* the character's ascii */
-		*vidptr++ = *s++;
-		/* attribute-byte: give character bg and fg */
-		*vidptr++ = color;
-	}
-}
 
 char hex(int v)
 {
@@ -176,67 +244,32 @@ void keyboard_handler_main(void)
 			return;
 
 		if(keycode == ENTER_KEY_CODE) {
-			kprint_newline();
+			terminal_newline();
 			return;
 		}
 
-		vidptr[current_loc++] = keyboard_map[keycode];
-		vidptr[current_loc++] = 0x07;	
+		terminal_putchar(keyboard_map[keycode]);
 	}
 }
 
-void kprint(const char *str)
-{
-	unsigned int i = 0;
-	while (str[i] != '\0') {
-		vidptr[current_loc++] = str[i++];
-		vidptr[current_loc++] = 0x07;
-	}
-}
-
-void kprint_newline(void)
-{
-	unsigned int line_size = BYTES_FOR_EACH_ELEMENT * COLUMNS_IN_LINE;
-	current_loc = current_loc + (line_size - current_loc % (line_size));
-}
-
-void clear_screen(void)
-{
-	unsigned int i = 0;
-	while (i < SCREENSIZE) {
-		vidptr[i++] = ' ';
-		vidptr[i++] = 0x07;
-	}
-}
-
-/*
-*  kernel.c
-*/
 void __attribute__((cdecl))  kmain(int start_eip, int start_esp)
 {
-	const char *str = "my first kernel";
+	const char *str = "my first kernel\n";
         char addr_str[sizeof(int) * 2 + 3];
-        
 
-	char *vidptr = (char*)0xb8000; 	//video mem begins here.
-	unsigned int i = 0;
-	unsigned int j = 0;
-
-	/* this loops clears the screen
-	* there are 25 lines each of 80 columns; each element takes 2 bytes */
-	while(j < 80 * 25 * 2) {
-		/* blank character */
-		vidptr[j] = ' ';
-		/* attribute-byte - light grey on black screen */
-		vidptr[j+1] = 0x07; 		
-		j = j + 2;
-	}
-
-	print(str, 60, 0x07);
+	terminal_initialize();
+       
+	terminal_writestring("Code start address: "); 
         itoa_hex(start_eip, addr_str);
-	print(addr_str, 0, 0x07);
+	terminal_writestring(addr_str);
+	terminal_writestring("\n");
+
+	terminal_writestring("Stack start address: ");
 	itoa_hex(start_esp, addr_str);
-	print(addr_str, 30, 0x07);
+	terminal_writestring(addr_str);
+	terminal_writestring("\n");
+
+	terminal_writestring(str);
 
 	idt_init();
 	kb_init();
